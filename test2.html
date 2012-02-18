@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>webgl-test2</title>
+<script type="text/javascript" src="gl-matrix.js"></script>
+<script type="text/javascript" src="gl-util.js"></script>
+
+<script id="shader-vs" type="x-shader/x-vertex">
+	attribute vec3 aVertexPosition;
+	attribute vec3 aVertexNormal;
+
+	uniform mat4 uMVMatrix;
+	uniform mat4 uPMatrix;
+	uniform mat4 uNormalMatrix;
+	uniform vec3 uLightVec;
+
+	varying vec3 vPosition;
+	varying vec3 vNormal;
+	varying vec3 vLightDirection;
+
+	void main(void) {
+		vPosition = vec3(uMVMatrix * vec4(aVertexPosition, 1.0));
+		vNormal = normalize(vec3(uNormalMatrix * vec4(aVertexNormal, 1.0)));
+		vLightDirection = normalize(uLightVec - vPosition);
+		
+		gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
+	}
+</script>
+
+<script id="shader-fs" type="x-shader/x-fragment">
+	precision mediump float;
+
+	varying vec3 vPosition;
+	varying vec3 vNormal;
+	varying vec3 vLightDirection;
+
+	void main(void) {
+		vec3 V = normalize(-vPosition);
+		vec3 N = normalize(vNormal);
+		vec3 L = normalize(vLightDirection);
+		vec4 lightAmbient = vec4(0.2, 0.2, 0.2, 1);
+		vec4 materialAmbient = vec4(0.3, 0.3, 0.2, 1);
+		vec4 lightDiffuse = vec4(0.5, 0.5, 0.5, 1);
+		vec4 materialDiffuse = vec4(0.5, 0.5, 0.5, 1);
+		vec4 lightSpecular = vec4(0.3, 0.3, 0.3, 1);
+		vec4 materialSpecular = vec4(0.3, 0.3, 0.3, 1);
+		float shininess = 0.5;
+		
+		vec4 ambient = lightAmbient * materialAmbient;
+		
+		float nDotL = dot(N,L);
+		float diffuseLight = max(nDotL, 0.0);
+		vec4 diffuse = lightDiffuse * materialDiffuse * diffuseLight;
+		
+		vec3 R = reflect(-L,N);
+		float vDotR = pow( max(dot(V,R), 0.0), shininess );
+		if (nDotL < 0.0) vDotR = 0.0;
+		vec4 specular = lightSpecular * materialSpecular * vDotR;
+		
+		gl_FragColor = ambient + diffuse + specular;
+	}
+</script>
+
+<script type="text/javascript">
+'use strict';
+
+window.onload = function() {
+	var task = {};
+	
+	task.init = function() {
+		// get canvas
+		var canvas = document.getElementById("gl_canvas");
+		// get webgl context
+		try {
+			this.glContext = canvas.getContext("webgl") || canvas.getContext("experimental-webgl")
+		} catch (e) {}
+		// if we couldn't get webgl context, exit
+		if ( ! this.glContext) {
+			alert("Unable to initialize WebGL.");
+			return;
+		}
+		var gl = this.glContext;
+		
+		// remember canvas width and height
+		this.canvasWidth = canvas.width;
+		this.canvasHeight = canvas.height;
+		
+		// create shader program
+		this.shaderProgram = createShaderProgram(gl, "shader-vs", "shader-fs");
+		
+		// get locations
+		gl.useProgram(this.shaderProgram);
+		this.loc_aVertexPosition = gl.getAttribLocation(this.shaderProgram, "aVertexPosition");
+		this.loc_aVertexNormal = gl.getAttribLocation(this.shaderProgram, "aVertexNormal");
+		this.loc_uMVMatrix = gl.getUniformLocation(this.shaderProgram, "uMVMatrix");
+		this.loc_uPMatrix = gl.getUniformLocation(this.shaderProgram, "uPMatrix");
+		this.loc_uNormalMatrix = gl.getUniformLocation(this.shaderProgram, "uNormalMatrix");
+		this.loc_uLightVec = gl.getUniformLocation(this.shaderProgram, "uLightVec");
+		
+		// create buffers
+		this.bufferSet = createIcosahedronBufferSet(gl);
+		
+		this.floorPositionBuffer = createBuffer(gl, gl.ARRAY_BUFFER, [0.5,0,-0.5, -0.5,0,-0.5, 0.5,0,0.5, -0.5,0,0.5], gl.FLOAT, 3);
+		this.floorNormalBuffer = createBuffer(gl, gl.ARRAY_BUFFER, [0,1,0, 0,1,0, 0,1,0, 0,1,0], gl.FLOAT, 3);
+		this.floorIndexBuffer = createBuffer(gl, gl.ELEMENT_ARRAY_BUFFER, [0,1,2, 2,1,3], gl.UNSIGNED_SHORT, 1);
+		
+		// create matrix
+		this.identityMatrix = mat4.create();
+		mat4.identity(this.identityMatrix);
+		this.viewMatrix = mat4.create();
+		this.projectionMatrix = mat4.create();
+		
+		// set initial camera parameter
+		this.cameraRotateRadius = 12;
+		this.cameraRotateAngle = 0;
+	};
+	
+	task.procFrame = function() {
+		var gl = this.glContext;
+		
+		// update camera parameter
+		this.cameraRotateAngle += Math.PI / 180;
+		if (this.cameraRotateAngle >= Math.PI * 2) {
+			this.cameraRotateAngle = 0;
+		}
+		
+		// light position
+		var light_pos = [3, 10, 3];
+		
+		// update matrix
+		var camera_pos = [
+			Math.cos(this.cameraRotateAngle) * this.cameraRotateRadius,
+			5,
+			Math.sin(this.cameraRotateAngle) * this.cameraRotateRadius
+		];
+		
+		mat4.lookAt(camera_pos, [0, 0, 0], [0, 1, 0], this.viewMatrix);
+		mat4.perspective(45, this.canvasWidth / this.canvasHeight, 0.1, 100.0, this.projectionMatrix);
+		
+		// set draw state
+		gl.viewport(0, 0, this.canvasWidth, this.canvasHeight);
+		gl.enable(gl.DEPTH_TEST);
+		gl.disable(gl.BLEND)
+		gl.enable(gl.CULL_FACE);
+		gl.cullFace(gl.BACK);
+		
+		// clear framebuffer
+		gl.clearColor(0.0, 0.0, 0.0, 1.0);
+		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+		
+		// draw
+		gl.useProgram(this.shaderProgram);
+		
+		bindVertexBuffer(gl, this.loc_aVertexPosition, this.bufferSet.position);
+		bindVertexBuffer(gl, this.loc_aVertexNormal, this.bufferSet.normal);
+		gl.bindBuffer(this.bufferSet.index.target, this.bufferSet.index);
+		
+		gl.uniformMatrix4fv(this.loc_uPMatrix, false, this.projectionMatrix);
+		var light_vec = vec3.create();
+		mat4.multiplyVec3(this.viewMatrix, light_pos, light_vec);
+		gl.uniform3fv(this.loc_uLightVec, light_vec);
+		
+		var model_matrix = mat4.create();
+		var temp_matrix = mat4.create();
+		
+		mat4.multiply(this.viewMatrix, this.identityMatrix, temp_matrix);
+		gl.uniformMatrix4fv(this.loc_uMVMatrix, false, temp_matrix);
+		mat4.inverse(temp_matrix);
+		mat4.transpose(temp_matrix);
+		gl.uniformMatrix4fv(this.loc_uNormalMatrix, false, temp_matrix);
+		
+		gl.drawElements(gl.TRIANGLES, this.bufferSet.index.itemNum, this.bufferSet.index.itemType, 0);
+		checkError(gl);
+		
+		mat4.translate(this.identityMatrix, [1.5, 1.5, 1.5], model_matrix);
+		mat4.multiply(this.viewMatrix, model_matrix, temp_matrix);
+		gl.uniformMatrix4fv(this.loc_uMVMatrix, false, temp_matrix);
+		mat4.inverse(temp_matrix);
+		mat4.transpose(temp_matrix);
+		gl.uniformMatrix4fv(this.loc_uNormalMatrix, false, temp_matrix);
+		
+		gl.drawElements(gl.TRIANGLES, this.bufferSet.index.itemNum, this.bufferSet.index.itemType, 0);
+		checkError(gl);
+		
+		bindVertexBuffer(gl, this.loc_aVertexPosition, this.floorPositionBuffer);
+		bindVertexBuffer(gl, this.loc_aVertexNormal, this.floorNormalBuffer);
+		gl.bindBuffer(this.floorIndexBuffer.target, this.floorIndexBuffer);
+		
+		mat4.scale(this.identityMatrix, [10, 1, 10], model_matrix);
+		mat4.translate(model_matrix, [0, -1, 0]);
+		mat4.multiply(this.viewMatrix, model_matrix, temp_matrix);
+		gl.uniformMatrix4fv(this.loc_uMVMatrix, false, temp_matrix);
+		mat4.inverse(temp_matrix);
+		mat4.transpose(temp_matrix);
+		gl.uniformMatrix4fv(this.loc_uNormalMatrix, false, temp_matrix);
+		
+		gl.drawElements(gl.TRIANGLES, this.floorIndexBuffer.itemNum, this.floorIndexBuffer.itemType, 0);
+		checkError(gl);
+		
+		gl.flush();
+	};
+	
+	task.init();
+	window.setInterval(function() { task.procFrame() }, 1000 / 30);
+}
+
+</script>
+
+</head>
+<body>
+<canvas id="gl_canvas" style="border: none;" width="500" height="500"></canvas>
+</body>
+</html>
