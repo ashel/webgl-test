@@ -13,16 +13,13 @@
 	uniform mat4 uMVMatrix;
 	uniform mat4 uPMatrix;
 	uniform mat4 uNormalMatrix;
-	uniform vec3 uLightVec;
 
 	varying vec3 vPosition;
 	varying vec3 vNormal;
-	varying vec3 vLightDirection;
 
 	void main(void) {
 		vPosition = vec3(uMVMatrix * vec4(aVertexPosition, 1.0));
 		vNormal = normalize(vec3(uNormalMatrix * vec4(aVertexNormal, 1.0)));
-		vLightDirection = normalize(uLightVec - vPosition);
 		
 		gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
 	}
@@ -31,14 +28,15 @@
 <script id="shader-fs" type="x-shader/x-fragment">
 	precision mediump float;
 
+	uniform vec3 uLightVec;
+	
 	varying vec3 vPosition;
 	varying vec3 vNormal;
-	varying vec3 vLightDirection;
 
 	void main(void) {
 		vec3 V = normalize(-vPosition);
 		vec3 N = normalize(vNormal);
-		vec3 L = normalize(vLightDirection);
+		vec3 L = normalize(uLightVec - vPosition);
 		vec4 lightAmbient = vec4(0.2, 0.2, 0.2, 1);
 		vec4 materialAmbient = vec4(0.3, 0.3, 0.2, 1);
 		vec4 lightDiffuse = vec4(0.5, 0.5, 0.5, 1);
